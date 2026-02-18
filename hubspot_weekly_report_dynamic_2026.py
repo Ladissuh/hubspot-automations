@@ -27,10 +27,13 @@ except ImportError:
     from backports.zoneinfo import ZoneInfo
 
 # ===== Konfigurace =====
-BASE_DIR = Path(
-    "/Users/ladis/Library/CloudStorage/OneDrive-Sdílenéknihovny–Dateios.r.o/Dateio - TapiX/Sales/Leadgen team/Python Automatizations/Sales Report"
-)
-EXCEL_PATH = BASE_DIR / "HubSpot_Deals_By_Stage_Dynamic_2026.xlsx"
+from pathlib import Path
+
+BASE_DIR = Path("outputs")
+BASE_DIR.mkdir(exist_ok=True)
+
+EXCEL_PATH = BASE_DIR / "HubSpot_Deals_By_Stage_DYNAMIC_2026.xlsx"
+
 LOCAL_TZ = "Europe/Prague"
 DEBUG_MAX_PAGES = None  # např. 2 při ladění
 
