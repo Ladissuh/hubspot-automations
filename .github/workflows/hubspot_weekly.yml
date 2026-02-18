@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests python-dotenv openpyxl
+          pip install requests python-dotenv openpyxl pandas python-dateutil
 
       - name: Run report (static)
         env:
@@ -40,6 +40,7 @@ jobs:
 
       - name: List outputs
         run: |
+          echo "=== outputs ==="
           ls -la outputs || true
 
       - name: "Upload XLSX to GitHub Release (tag: latest)"
@@ -47,9 +48,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest HubSpot reports
-          files: |
-            outputs/HubSpot_Deals_By_Stage_2026.xlsx
-            outputs/HubSpot_Deals_By_Stage_DYNAMIC_2026.xlsx
+          files: outputs/*.xlsx
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
