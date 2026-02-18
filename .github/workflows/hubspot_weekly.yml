@@ -37,7 +37,7 @@ jobs:
         run: |
           ls -la outputs || true
 
-      - name: Upload XLSX to GitHub Release (tag: latest)
+      - name: "Upload XLSX to GitHub Release (tag: latest)"
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
