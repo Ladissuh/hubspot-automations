@@ -26,11 +26,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests python-dotenv openpyxl
 
-      - name: Run report
+      - name: Run report (static)
         env:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
         run: |
           python hubspot_weekly_report_2026.py
+
+      - name: Run report (dynamic)
+        env:
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+        run: |
+          python hubspot_weekly_report_dynamic_2026.py
 
       - name: List outputs
         run: |
@@ -40,8 +46,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: Latest HubSpot report
-          files: outputs/HubSpot_Deals_By_Stage_2026.xlsx
+          name: Latest HubSpot reports
+          files: |
+            outputs/HubSpot_Deals_By_Stage_2026.xlsx
+            outputs/HubSpot_Deals_By_Stage_DYNAMIC_2026.xlsx
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
