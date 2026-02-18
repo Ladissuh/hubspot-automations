@@ -3,11 +3,15 @@ name: HubSpot weekly report
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 7 * * 3"  # každou středu 07:00 UTC (upravíme čas později)
+    - cron: "0 7 * * 3"  # každou středu 07:00 UTC
+
+permissions:
+  contents: write  # nutné pro vytvoření/úpravu Release a upload souboru
 
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,8 +32,17 @@ jobs:
         run: |
           python hubspot_weekly_report_2026.py
 
-      - name: Upload outputs
-        uses: actions/upload-artifact@v4
+      # Volitelné: pro debug, když něco nejde
+      - name: List outputs
+        run: |
+          ls -la outputs || true
+
+      - name: Upload XLSX to GitHub Release (tag: latest)
+        uses: softprops/action-gh-release@v2
         with:
-          name: hubspot-report
-          path: outputs/
+          tag_name: latest
+          name: Latest HubSpot report
+          files: outputs/HubSpot_Deals_By_Stage_2026.xlsx
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
