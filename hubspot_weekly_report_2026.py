@@ -26,9 +26,7 @@ except ImportError:
     from backports.zoneinfo import ZoneInfo
 
 # ===== Konfigurace =====
-BASE_DIR = Path(
-    "/Users/ladis/Library/CloudStorage/OneDrive-Sdílenéknihovny–Dateios.r.o/Dateio - TapiX/Sales/Leadgen team/Python Automatizations/Sales Report"
-)
+BASE_DIR = Path("outputs")
 EXCEL_PATH = BASE_DIR / "HubSpot_Deals_By_Stage_2026.xlsx"
 
 # reportujeme rok 2026 -> cutoff = 2027-01-01
@@ -40,11 +38,13 @@ DEBUG_MAX_PAGES = None  # např. 2 při ladění
 
 # ===== Pomocné funkce =====
 def load_token() -> str:
+    # Na GitHubu to poběží přes Secrets (env var HUBSPOT_TOKEN).
+    # Lokálně můžeš mít pořád .env, ale není to povinné.
     project_dir = Path(__file__).parent
-    load_dotenv(dotenv_path=project_dir / ".env")
+    load_dotenv(dotenv_path=project_dir / ".env")  # když existuje, tak se načte
     token = os.getenv("HUBSPOT_TOKEN")
     if not token:
-        raise RuntimeError("Chybí HUBSPOT_TOKEN v .env (HUBSPOT_TOKEN=pat-...)")
+        raise RuntimeError("Chybí HUBSPOT_TOKEN (nastav v GitHub Secrets nebo lokálně do .env)")
     return token
 
 
