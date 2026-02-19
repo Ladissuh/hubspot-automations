@@ -26,17 +26,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests python-dotenv openpyxl pandas python-dateutil
 
+      # 1) STATIC report (používá HUBSPOT_TOKEN)
       - name: Run report (static)
         env:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
         run: |
           python hubspot_weekly_report_2026.py
 
+      # 2) DYNAMIC report (používá HUBSPOT_TOKEN)
       - name: Run report (dynamic)
         env:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
         run: |
           python hubspot_weekly_report_dynamic_2026.py
+
+      # 3) PRODUCT report (používá HUBSPOT_PRIVATE_APP_TOKEN)
+      - name: Run report (product)
+        env:
+          HUBSPOT_PRIVATE_APP_TOKEN: ${{ secrets.HUBSPOT_PRIVATE_APP_TOKEN }}
+        run: |
+          python weekly_product_report.py
 
       - name: List outputs
         run: |
