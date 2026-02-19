@@ -574,10 +574,9 @@ def main():
     if not token:
         raise RuntimeError("Chybí HUBSPOT_PRIVATE_APP_TOKEN v .env")
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    # když smažeš excel, vytvoří se nový
-    out_xlsx = os.getenv("OUTPUT_XLSX", os.path.join(OUTPUT_DIR, "hubspot_deals_by_product.xlsx"))
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    
+    out_xlsx = str(OUTPUT_DIR / "hubspot_deals_by_product.xlsx")
 
     product_label = os.getenv("PRODUCT_PROPERTY_LABEL", "Product")
     explicit_prop = os.getenv("PRODUCT_PROPERTY_NAME")  # optional
