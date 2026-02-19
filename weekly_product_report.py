@@ -14,11 +14,11 @@ from dotenv import load_dotenv
 # CONFIG
 # =========================
 
-PROJECT_DIR = "/Users/ladis/Dateio Python Projects/project_product"
-ENV_PATH = os.path.join(PROJECT_DIR, ".env")
+from pathlib import Path
 
-# ✅ OneDrive output dir
-OUTPUT_DIR = "/Users/ladis/Library/CloudStorage/OneDrive-Sdílenéknihovny–Dateios.r.o/Dateio - TapiX/Sales/Leadgen team/Python Automatizations/Product Report"
+PROJECT_DIR = Path(__file__).parent
+ENV_PATH = PROJECT_DIR / ".env"      # lokálně může existovat, v GitHubu nevadí
+OUTPUT_DIR = Path("outputs")         # GitHub-friendly
 
 BASE_URL = "https://api.hubapi.com"
 
