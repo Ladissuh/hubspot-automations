@@ -3,7 +3,7 @@ name: HubSpot weekly report
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 7 * * 3"  # každou středu 07:00 UTC
+    - cron: "0 6 * * 3"  # každou středu 07:00 UTC
 
 permissions:
   contents: write
