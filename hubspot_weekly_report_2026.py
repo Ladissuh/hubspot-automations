@@ -7,8 +7,12 @@ Týdenní export HubSpot dealů do Excelu (pevný cutoff):
 - Agregace: součet 'amount' podle (deal owner × deal stage).
 - Excel: každý owner = samostatný list; řádky = stage; sloupce = jednotlivé týdny (minulý týden).
 
+Chování sloupců:
+- DEFAULT: neduplikovat stejný týdenní sloupec (idempotentní). Pokud existuje, přepíše se.
+- Volitelně: pokud ALLOW_DUPLICATE_WEEK_COLUMNS=true, vytvoří se nový sloupec se suffixem #2, #3...
+
 Výstup:
-  /Users/ladis/Library/CloudStorage/OneDrive-Sdílenéknihovny–Dateios.r.o/Dateio - TapiX/Sales/Leadgen team/Python Automatizations/Sales Report/HubSpot_Deals_By_Stage_2026.xlsx
+  outputs/HubSpot_Deals_By_Stage_2026.xlsx
 """
 
 import os
@@ -25,13 +29,12 @@ try:
 except ImportError:
     from backports.zoneinfo import ZoneInfo
 
+
 # ===== Konfigurace =====
 BASE_DIR = Path("outputs")
 EXCEL_PATH = BASE_DIR / "HubSpot_Deals_By_Stage_2026.xlsx"
 
-# reportujeme rok 2026 -> cutoff = 2027-01-01
 CUTOFF_DATE_ISO = "2027-01-01T00:00:00Z"
-
 LOCAL_TZ = "Europe/Prague"
 DEBUG_MAX_PAGES = None  # např. 2 při ladění
 
@@ -59,6 +62,28 @@ def iso_to_epoch_ms(iso_str: str) -> int:
 
 def backoff_sleep(attempt: int):
     time.sleep(min(2 ** attempt, 32))
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def make_unique_week_label(existing_headers: List[str], base_label: str) -> str:
+    """
+    Pokud base_label už existuje v headeru, vytvoří base_label + ' #2', '#3', ...
+    Používá se jen když ALLOW_DUPLICATE_WEEK_COLUMNS=true.
+    """
+    existing = [h for h in existing_headers if h]
+    if base_label not in existing:
+        return base_label
+
+    i = 2
+    while f"{base_label} #{i}" in existing:
+        i += 1
+    return f"{base_label} #{i}"
 
 
 # ===== HubSpot API =====
@@ -131,29 +156,37 @@ def fetch_deals(token: str, cutoff_epoch_ms: int) -> List[dict]:
         "limit": 100,
         "sorts": [{"propertyName": "closedate", "direction": "DESCENDING"}],
     }
+
     all_deals: List[dict] = []
     pages = 0
     after = None
     attempt = 0
+
     while True:
         if after:
             body["after"] = after
+
         resp = requests.post(url, headers=hs_headers(token), json=body)
         if resp.status_code == 429 or 500 <= resp.status_code < 600:
             attempt += 1
             backoff_sleep(attempt)
             continue
+
         resp.raise_for_status()
         data = resp.json()
         attempt = 0
+
         results = data.get("results", [])
         all_deals.extend(results)
+
         pages += 1
         if DEBUG_MAX_PAGES and pages >= DEBUG_MAX_PAGES:
             break
+
         after = data.get("paging", {}).get("next", {}).get("after")
         if not after:
             break
+
     return all_deals
 
 
@@ -168,15 +201,19 @@ def aggregate_amounts_by_owner_and_stage(
         props = d.get("properties", {}) or {}
         stage_id = props.get("dealstage")
         stage_label = stage_label_map.get(stage_id, "Unknown stage")
+
         amount = props.get("amount")
         try:
             val = float(amount) if amount not in (None, "") else 0.0
         except ValueError:
             val = 0.0
+
         owner_id = props.get("hubspot_owner_id")
         owner_name = owners_map.get(str(owner_id), "Unassigned")
+
         data.setdefault(owner_name, {}).setdefault(stage_label, 0.0)
         data[owner_name][stage_label] += val
+
     return data
 
 
@@ -216,17 +253,28 @@ def write_snapshot_to_excel(
         if "Sheet" in wb.sheetnames and len(wb.sheetnames) == 1:
             del wb["Sheet"]
 
+    allow_duplicates = env_bool("ALLOW_DUPLICATE_WEEK_COLUMNS", default=False)
+
     for owner_name, stage_sums in data_by_owner.items():
         ws = ensure_sheet(wb, owner_name)
+
         if ws.max_row < 1 or ws["A1"].value != "Stage":
             ws["A1"] = "Stage"
 
         headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
-        if week_label in headers:
-            week_col = headers.index(week_label) + 1
-        else:
+
+        if allow_duplicates:
+            # duplicity jen pokud si to vyloženě zapneš
+            unique_label = make_unique_week_label(headers, week_label)
             week_col = ws.max_column + 1
-            ws.cell(row=1, column=week_col, value=week_label)
+            ws.cell(row=1, column=week_col, value=unique_label)
+        else:
+            # DEFAULT: neduplikovat – přepiš existující týdenní sloupec
+            if week_label in headers:
+                week_col = headers.index(week_label) + 1
+            else:
+                week_col = ws.max_column + 1
+                ws.cell(row=1, column=week_col, value=week_label)
 
         existing_rows: Dict[str, int] = {}
         for r in range(2, ws.max_row + 1):
