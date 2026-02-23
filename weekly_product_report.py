@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import time
 import datetime as dt
@@ -9,12 +12,16 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
+from pathlib import Path
+
+try:
+    from zoneinfo import ZoneInfo  # py 3.9+
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 
 # =========================
 # CONFIG
 # =========================
-
-from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent
 ENV_PATH = PROJECT_DIR / ".env"      # lokálně může existovat, v GitHubu nevadí
@@ -22,11 +29,12 @@ OUTPUT_DIR = Path("outputs")         # GitHub-friendly
 
 BASE_URL = "https://api.hubapi.com"
 
+LOCAL_TZ = "Europe/Prague"
+
 DEFAULT_PRODUCTS = ["Tapix", "EcoTrack", "ATM Nearby", "Labelling", "OpenData", "Subscription"]
 
-# ✅ přidali jsme owner_* sloupce
 SHEET_HEADERS = [
-    "snapshot_week_start",   # pondělí daného týdne (idempotentní snapshot)
+    "snapshot_week_start",   # pondělí minulého týdne (weekly snapshot)
     "deal_id",
     "deal_name",
     "company_id",
@@ -52,6 +60,7 @@ HEADER_FONT = Font(bold=True)
 TITLE_FONT = Font(bold=True, size=14)
 WRAP = Alignment(vertical="center", wrap_text=True)
 
+
 # =========================
 # HELPERS
 # =========================
@@ -70,7 +79,6 @@ def hubspot_request(token: str, method: str, path: str, *, params=None, json=Non
             continue
 
         r.raise_for_status()
-        # některé endpointy vrací [] (list), jiné dict
         if r.text and r.text.strip():
             return r.json()
         return {}
@@ -80,12 +88,15 @@ def hubspot_request(token: str, method: str, path: str, *, params=None, json=Non
     raise RuntimeError("hubspot_request failed without response")
 
 
-def week_start_iso(d: Optional[dt.date] = None) -> str:
-    """Vrátí ISO datum pondělí aktuálního týdne (YYYY-MM-DD)."""
-    if d is None:
-        d = dt.date.today()
-    monday = d - dt.timedelta(days=d.weekday())
-    return monday.isoformat()
+def previous_week_start_iso(tz_name: str = LOCAL_TZ) -> str:
+    """
+    Weekly snapshots:
+    - vždy vrací pondělí MINULÉHO týdne v lokální TZ.
+    """
+    today = dt.datetime.now(ZoneInfo(tz_name)).date()
+    monday_this_week = today - dt.timedelta(days=today.weekday())
+    monday_prev_week = monday_this_week - dt.timedelta(days=7)
+    return monday_prev_week.isoformat()
 
 
 def excel_safe_sheet_name(name: str) -> str:
@@ -109,7 +120,6 @@ def ensure_sheet_headers(ws):
 
 
 def create_new_workbook(path: str, products: List[str]) -> Workbook:
-    """Vytvoří nový workbook (uživatel smaže starý)."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
@@ -195,7 +205,6 @@ def split_multicheckbox(value: Optional[str]) -> List[str]:
 def get_owners_map(token: str) -> Dict[str, Dict[str, str]]:
     """
     owner_id -> {"name": "...", "email": "..."}
-    Zkouší v3 endpoint; fallback legacy v2.
     """
     candidate_paths = ["/crm/v3/owners", "/owners/v2/owners"]
     data = None
@@ -228,9 +237,6 @@ def get_owners_map(token: str) -> Dict[str, Dict[str, str]]:
 
 
 def batch_read_deal_company_primary(token: str, deal_ids: List[str]) -> Dict[str, str]:
-    """
-    deal_id -> primary_company_id (nebo první associated)
-    """
     if not deal_ids:
         return {}
 
@@ -281,7 +287,6 @@ def batch_read_deal_company_primary(token: str, deal_ids: List[str]) -> Dict[str
 
 
 def batch_read_company_names(token: str, company_ids: List[str]) -> Dict[str, str]:
-    """company_id -> company_name"""
     if not company_ids:
         return {}
 
@@ -320,8 +325,7 @@ def build_rows(
     want = {p.lower(): p for p in products_interest}
     rows_by_product: Dict[str, List[List]] = {p: [] for p in products_interest}
 
-    # dedupe per product per snapshot: (product, deal_id)
-    seen = set()
+    seen = set()  # (product, deal_id)
 
     for d in deals:
         deal_id = str(d.get("id"))
@@ -386,10 +390,9 @@ def build_rows(
 
 def replace_rows_for_snapshot(ws, rows: List[List], snapshot_week_start: str):
     """
-    Idempotentní snapshot:
+    Weekly snapshot, idempotentní:
     - smaže všechny řádky pro dané snapshot_week_start
     - vloží nové řádky
-    Staré týdny se nikdy nepřepisují.
     """
     to_delete = []
     for i, r in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -441,20 +444,15 @@ def rewrite_summary_sheet(wb, products: List[str]):
         ws["A3"] = "No data yet. Run the script once to populate product sheets."
         return
 
-    # typing / cleanup
     df["snapshot_week_start"] = df["snapshot_week_start"].astype(str)
     df["product_option"] = df["product_option"].astype(str)
-    df["pipeline_label"] = df["pipeline_label"].astype(str)
-    df["dealstage_label"] = df["dealstage_label"].astype(str)
     df["owner_name"] = df["owner_name"].fillna("").astype(str)
     df["amount_num"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
 
     weeks = sorted(df["snapshot_week_start"].unique().tolist())
     prod_order = products[:]
 
-    # -------------------------
     # Table 1: counts by product x week
-    # -------------------------
     ws["A3"] = "Table 1: Deal count by product (weekly snapshots)"
     ws["A3"].font = Font(bold=True)
 
@@ -483,9 +481,7 @@ def rewrite_summary_sheet(wb, products: List[str]):
             val = int(count_pivot.loc[p, w]) if (p in count_pivot.index and w in count_pivot.columns) else 0
             ws.cell(row=r_i, column=c_i, value=val)
 
-    # -------------------------
     # Table 2: sum amount by product x week
-    # -------------------------
     ws["A20"] = "Table 2: Total amount by product (weekly snapshots)"
     ws["A20"].font = Font(bold=True)
 
@@ -514,57 +510,9 @@ def rewrite_summary_sheet(wb, products: List[str]):
             cell = ws.cell(row=r_i, column=c_i, value=val)
             cell.number_format = "#,##0.00"
 
-    # -------------------------
-    # Table 3: tidy distribution incl. owner (Power BI friendly)
-    # -------------------------
-    ws["A37"] = "Table 3: Stage distribution incl. owner (tidy, good for Power BI)"
-    ws["A37"].font = Font(bold=True)
-
-    tidy_headers = [
-        "snapshot_week_start",
-        "product",
-        "owner_name",
-        "pipeline_label",
-        "dealstage_label",
-        "deal_count",
-        "amount_sum",
-    ]
-    header_row = 39
-    for c, h in enumerate(tidy_headers, start=1):
-        cell = ws.cell(row=header_row, column=c, value=h)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
-        cell.alignment = WRAP
-
-    tidy = (
-        df.groupby(["snapshot_week_start", "product_option", "owner_name", "pipeline_label", "dealstage_label"])
-          .agg(deal_count=("deal_id", "nunique"), amount_sum=("amount_num", "sum"))
-          .reset_index()
-          .rename(columns={"product_option": "product"})
-          .sort_values(["snapshot_week_start", "product", "owner_name", "pipeline_label", "dealstage_label"])
-    )
-
-    row = header_row + 1
-    for _, rec in tidy.iterrows():
-        ws.cell(row=row, column=1, value=rec["snapshot_week_start"])
-        ws.cell(row=row, column=2, value=rec["product"])
-        ws.cell(row=row, column=3, value=rec["owner_name"])
-        ws.cell(row=row, column=4, value=rec["pipeline_label"])
-        ws.cell(row=row, column=5, value=rec["dealstage_label"])
-        ws.cell(row=row, column=6, value=int(rec["deal_count"]))
-        c7 = ws.cell(row=row, column=7, value=float(rec["amount_sum"]))
-        c7.number_format = "#,##0.00"
-        row += 1
-
     # basic formatting
     ws.freeze_panes = "A5"
     ws.column_dimensions["A"].width = 18
-    ws.column_dimensions["B"].width = 16
-    ws.column_dimensions["C"].width = 22
-    ws.column_dimensions["D"].width = 20
-    ws.column_dimensions["E"].width = 24
-    ws.column_dimensions["F"].width = 12
-    ws.column_dimensions["G"].width = 14
 
 
 def main():
@@ -572,19 +520,18 @@ def main():
 
     token = os.getenv("HUBSPOT_PRIVATE_APP_TOKEN")
     if not token:
-        raise RuntimeError("Chybí HUBSPOT_PRIVATE_APP_TOKEN v .env")
+        raise RuntimeError("Chybí HUBSPOT_PRIVATE_APP_TOKEN v .env / GitHub Secrets")
 
     OUTPUT_DIR.mkdir(exist_ok=True)
-    
     out_xlsx = str(OUTPUT_DIR / "hubspot_deals_by_product.xlsx")
 
     product_label = os.getenv("PRODUCT_PROPERTY_LABEL", "Product")
     explicit_prop = os.getenv("PRODUCT_PROPERTY_NAME")  # optional
-
     products_interest = DEFAULT_PRODUCTS[:]
 
-    # ✅ snapshot pro týden = pondělí (idempotentní, bez duplicit)
-    snapshot_week = week_start_iso()
+    # ✅ TADY JE KLÍČOVÁ OPRAVA:
+    # snapshot = pondělí MINULÉHO týdne (weekly snapshots), takže se týdny nepřepisují
+    snapshot_week = previous_week_start_iso(LOCAL_TZ)
 
     product_property_name = find_product_property_name(token, product_label, explicit_prop)
     opt_map = get_product_options_map(token, product_property_name)
@@ -619,7 +566,6 @@ def main():
         owners_map=owners_map,
     )
 
-    # ✅ vytvoř nový soubor pokud neexistuje
     if not os.path.exists(out_xlsx):
         wb = create_new_workbook(out_xlsx, products_interest)
     else:
@@ -632,7 +578,6 @@ def main():
                 wb.create_sheet(sh)
             ensure_sheet_headers(wb[sh])
 
-    # ✅ zapiš snapshot pro tento týden (bez duplicit)
     for product, rows in rows_by_product.items():
         sh_name = excel_safe_sheet_name(product)
         ws = wb[sh_name]
