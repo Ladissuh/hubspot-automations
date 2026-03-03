@@ -3,14 +3,19 @@ name: HubSpot weekly report
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 10 * * 1"  # každou středu 07:00 UTC
+    - cron: "0 10 * * 1"  # každé pondělí 10:00 UTC
 
 permissions:
   contents: write
 
+concurrency:
+  group: hubspot-weekly
+  cancel-in-progress: true
+
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -26,33 +31,58 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests python-dotenv openpyxl pandas python-dateutil
 
-      # 1) STATIC report (používá HUBSPOT_TOKEN)
+      - name: Create outputs folder
+        run: |
+          mkdir -p outputs
+
+      - name: Download previous reports from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download latest \
+            --repo ${{ github.repository }} \
+            --pattern "HubSpot_Deals_By_Stage_2026.xlsx" \
+            --dir outputs || echo "Static report not found yet"
+
+          gh release download latest \
+            --repo ${{ github.repository }} \
+            --pattern "HubSpot_Deals_By_Stage_DYNAMIC_2026.xlsx" \
+            --dir outputs || echo "Dynamic report not found yet"
+
+          gh release download latest \
+            --repo ${{ github.repository }} \
+            --pattern "hubspot_deals_by_product.xlsx" \
+            --dir outputs || echo "Product report not found yet"
+
+      - name: List outputs before run
+        run: |
+          echo "=== outputs before run ==="
+          ls -la outputs || true
+
       - name: Run report (static)
         env:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
         run: |
           python hubspot_weekly_report_2026.py
 
-      # 2) DYNAMIC report (používá HUBSPOT_TOKEN)
       - name: Run report (dynamic)
         env:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
         run: |
           python hubspot_weekly_report_dynamic_2026.py
 
-      # 3) PRODUCT report (používá HUBSPOT_PRIVATE_APP_TOKEN)
       - name: Run report (product)
         env:
           HUBSPOT_PRIVATE_APP_TOKEN: ${{ secrets.HUBSPOT_PRIVATE_APP_TOKEN }}
         run: |
           python weekly_product_report.py
 
-      - name: List outputs
+      - name: List outputs after run
         run: |
-          echo "=== outputs ==="
+          echo "=== outputs after run ==="
           ls -la outputs || true
 
-      - name: "Upload XLSX to GitHub Release (tag: latest)"
+      - name: Upload XLSX to GitHub Release (tag: latest)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
