@@ -1039,6 +1039,33 @@ def build_dashboard(wb, products: List[str]):
     dash.column_dimensions["B"].width = 28
     dash.column_dimensions["C"].width = 22
 
+    # reference legend in cols N/O — explains where the % weights come from.
+    # values pulled from the live config (STAGE_PROBABILITY and ATTR_SPLITS) so
+    # the legend stays in sync if the config is ever edited.
+    REF_COL, VAL_COL = 14, 15           # N, O
+    dash.column_dimensions["N"].width = 18
+    dash.column_dimensions["O"].width = 10
+
+    h1 = dash.cell(row=4, column=REF_COL, value="Stage probability")
+    h1.font = Font(bold=True, size=11)
+    tapix_open = [s for s in STAGE_ORDER.get("Tapix", [])
+                  if stage_class(stage_probability("Tapix", s)) == "open"]
+    for i, stg in enumerate(tapix_open):
+        r = 5 + i
+        dash.cell(row=r, column=REF_COL, value=stg)
+        pc = dash.cell(row=r, column=VAL_COL, value=stage_probability("Tapix", stg))
+        pc.number_format = "0%"
+
+    h2_row = 5 + len(tapix_open) + 1    # one blank row between the two tables
+    h2 = dash.cell(row=h2_row, column=REF_COL, value="Share on amount")
+    h2.font = Font(bold=True, size=11)
+    share_5 = ATTR_SPLITS.get(frozenset({"T", "R", "E", "A", "O"}), {})
+    for i, (label, abbr) in enumerate(ATTR_ABBREV.items()):
+        r = h2_row + 1 + i
+        dash.cell(row=r, column=REF_COL, value=label)
+        pc = dash.cell(row=r, column=VAL_COL, value=share_5.get(abbr, 0))
+        pc.number_format = "0.0%"
+
     # caption above the chart — the chart is fixed to the Tapix pipeline
     cap = dash.cell(row=15, column=2,
                     value=f"{chart_pipeline} pipeline — weighted amount by stage, "
